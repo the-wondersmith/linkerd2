@@ -791,7 +791,7 @@ fn convert_to_http_filter(filter: Filter) -> outbound::http_route::Filter {
             }
             Filter::RequestRedirect(f) => Kind::Redirect(routes::convert_redirect_filter(f)),
             Filter::FailureInjector(f) => {
-                Kind::FailureInjector(routes::convert_failure_injector_filter(f))
+                Kind::FailureInjector(routes::http::convert_failure_injector_filter(f))
             }
         }),
     }

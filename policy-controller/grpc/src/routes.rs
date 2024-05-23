@@ -17,23 +17,6 @@ pub(crate) fn convert_host_match(h: HostMatch) -> proto::HostMatch {
     }
 }
 
-pub(crate) fn convert_failure_injector_filter(
-    FailureInjectorFilter {
-        status,
-        message,
-        ratio,
-    }: FailureInjectorFilter,
-) -> proto::HttpFailureInjector {
-    proto::HttpFailureInjector {
-        status: u32::from(status.as_u16()),
-        message,
-        ratio: Some(proto::Ratio {
-            numerator: ratio.numerator,
-            denominator: ratio.denominator,
-        }),
-    }
-}
-
 pub(crate) fn convert_request_header_modifier_filter(
     HeaderModifierFilter { add, set, remove }: HeaderModifierFilter,
 ) -> proto::RequestHeaderModifier {
@@ -110,7 +93,9 @@ pub(crate) fn convert_redirect_filter(
 }
 
 pub(crate) mod http {
-    use super::{proto, HeaderMatch, HttpRouteMatch, PathMatch, QueryParamMatch};
+    use super::{
+        proto, FailureInjectorFilter, HeaderMatch, HttpRouteMatch, PathMatch, QueryParamMatch,
+    };
 
     pub(crate) fn convert_match(
         HttpRouteMatch {
@@ -163,15 +148,32 @@ pub(crate) mod http {
             method: method.map(Into::into),
         }
     }
+
+    pub(crate) fn convert_failure_injector_filter(
+        FailureInjectorFilter {
+            status,
+            message,
+            ratio,
+        }: FailureInjectorFilter,
+    ) -> proto::HttpFailureInjector {
+        proto::HttpFailureInjector {
+            status: u32::from(status.as_u16()),
+            message,
+            ratio: Some(proto::Ratio {
+                numerator: ratio.numerator,
+                denominator: ratio.denominator,
+            }),
+        }
+    }
 }
 
 pub(crate) mod grpc {
-    use super::{GrpcRouteMatch, HeaderMatch};
+    use super::{FailureInjectorFilter, GrpcRouteMatch, HeaderMatch};
 
     mod proto {
         pub(super) use linkerd2_proxy_api::{
-            grpc_route::{GrpcRouteMatch, GrpcRpcMatch},
-            http_route::{header_match::Value as HeaderValue, HeaderMatch},
+            grpc_route::{GrpcFailureInjector, GrpcRouteMatch, GrpcRpcMatch},
+            http_route::{header_match::Value as HeaderValue, HeaderMatch, Ratio},
         };
     }
 
@@ -198,5 +200,22 @@ pub(crate) mod grpc {
         });
 
         proto::GrpcRouteMatch { rpc, headers }
+    }
+
+    pub(crate) fn convert_failure_injector_filter(
+        FailureInjectorFilter {
+            status,
+            message,
+            ratio,
+        }: FailureInjectorFilter,
+    ) -> proto::GrpcFailureInjector {
+        proto::GrpcFailureInjector {
+            code: u32::from(status.as_u16()),
+            message,
+            ratio: Some(proto::Ratio {
+                numerator: ratio.numerator,
+                denominator: ratio.denominator,
+            }),
+        }
     }
 }
