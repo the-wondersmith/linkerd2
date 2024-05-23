@@ -299,13 +299,13 @@ impl Index {
         type Ns = NsUpdate<GroupKindName, RouteBinding>;
         let mut updates_by_ns = HashMap::<String, Ns>::default();
         for route in routes.into_iter() {
-            let namespace = route.namespace().expect("HttpRoute must be namespaced");
+            let namespace = route.namespace().expect("Routes must be namespaced");
             let name = route.name_unchecked();
             let gkn = route.gkn();
             let route_binding = match route.try_into() {
                 Ok(binding) => binding,
                 Err(error) => {
-                    tracing::info!(ns = %namespace, %name, %error, "Ignoring HTTPRoute");
+                    tracing::info!(ns = %namespace, group = gkn.group.as_ref(), kind = gkn.kind.as_ref(), %name, %error, "Ignoring route");
                     continue;
                 }
             };
@@ -1627,8 +1627,8 @@ impl PolicyIndex {
                     }
                 }
                 authorization_policy::Target::Namespace => {}
-                authorization_policy::Target::HttpRoute(_) => {
-                    // Policies which target HttpRoutes will be attached to
+                authorization_policy::Target::Route(_) => {
+                    // Policies which target routes will be attached to
                     // the route authorizations and should not be included in
                     // the server authorizations.
                     continue;
@@ -1673,7 +1673,7 @@ impl PolicyIndex {
         for (name, spec) in &self.authorization_policies {
             // Skip the policy if it doesn't apply to the route.
             match &spec.target {
-                authorization_policy::Target::HttpRoute(n) if n.eq_ignore_ascii_case(gkn) => {}
+                authorization_policy::Target::Route(n) if n.eq_ignore_ascii_case(gkn) => {}
                 _ => {
                     tracing::trace!(
                         ns = %self.namespace,
