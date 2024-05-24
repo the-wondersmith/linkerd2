@@ -2,8 +2,8 @@ use crate::{
     identity_match::IdentityMatch,
     network_match::NetworkMatch,
     routes::{
-        FailureInjectorFilter, GroupKindName, HeaderModifierFilter, HostMatch, HttpRouteMatch,
-        PathMatch, RequestRedirectFilter,
+        FailureInjectorFilter, GroupKindName, GrpcRouteMatch, HeaderModifierFilter, HostMatch,
+        HttpRouteMatch, PathMatch, RequestRedirectFilter,
     },
 };
 use ahash::AHashMap as HashMap;
@@ -32,16 +32,17 @@ pub enum InboundRouteRef {
 }
 
 /// Describes how a proxy should handle inbound connections.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProxyProtocol {
     /// Indicates that the protocol should be discovered dynamically.
     Detect {
         timeout: Duration,
+        routes: HashMap<InboundRouteRef, InboundRoute<HttpRouteMatch>>,
     },
 
-    Http1,
-    Http2,
-    Grpc,
+    Http1(HashMap<InboundRouteRef, InboundRoute<HttpRouteMatch>>),
+    Http2(HashMap<InboundRouteRef, InboundRoute<HttpRouteMatch>>),
+    Grpc(HashMap<InboundRouteRef, InboundRoute<GrpcRouteMatch>>),
 
     /// Indicates that connections should be handled opaquely.
     Opaque,
@@ -88,13 +89,12 @@ pub struct InboundServer {
     pub reference: ServerRef,
     pub protocol: ProxyProtocol,
     pub authorizations: HashMap<AuthorizationRef, ClientAuthorization>,
-    pub routes: HashMap<InboundRouteRef, InboundRoute>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InboundRoute {
+pub struct InboundRoute<MatchType> {
     pub hostnames: Vec<HostMatch>,
-    pub rules: Vec<InboundRouteRule>,
+    pub rules: Vec<InboundRouteRule<MatchType>>,
     pub authorizations: HashMap<AuthorizationRef, ClientAuthorization>,
 
     /// Required for ordering returned
@@ -103,8 +103,8 @@ pub struct InboundRoute {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InboundRouteRule {
-    pub matches: Vec<HttpRouteMatch>,
+pub struct InboundRouteRule<MatchType> {
+    pub matches: Vec<MatchType>,
     pub filters: Vec<Filter>,
 }
 
@@ -120,7 +120,7 @@ pub enum Filter {
 
 /// The default `InboundRoute` used for any `InboundServer` that
 /// does not have routes.
-impl Default for InboundRoute {
+impl Default for InboundRoute<HttpRouteMatch> {
     fn default() -> Self {
         Self {
             hostnames: vec![],
@@ -138,6 +138,17 @@ impl Default for InboundRoute {
             // the route.
             authorizations: HashMap::new(),
             creation_timestamp: None,
+        }
+    }
+}
+
+impl Default for InboundRoute<GrpcRouteMatch> {
+    fn default() -> Self {
+        Self {
+            creation_timestamp: None,
+            rules: Default::default(),
+            hostnames: Default::default(),
+            authorizations: Default::default(),
         }
     }
 }

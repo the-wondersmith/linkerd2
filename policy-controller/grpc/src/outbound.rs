@@ -315,9 +315,9 @@ fn to_service(outbound: OutboundPolicy) -> outbound::OutboundPolicy {
     }
 }
 
-fn timestamp_then_name<RouteType>(
-    (left_id, left_route): &(GroupKindNamespaceName, OutboundRoute<RouteType>),
-    (right_id, right_route): &(GroupKindNamespaceName, OutboundRoute<RouteType>),
+fn timestamp_then_name<MatchType>(
+    (left_id, left_route): &(GroupKindNamespaceName, OutboundRoute<MatchType>),
+    (right_id, right_route): &(GroupKindNamespaceName, OutboundRoute<MatchType>),
 ) -> std::cmp::Ordering {
     let by_ts = match (
         &left_route.creation_timestamp,
