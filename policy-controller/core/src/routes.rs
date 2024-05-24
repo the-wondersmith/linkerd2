@@ -6,7 +6,12 @@ pub use http::{
     Method, StatusCode,
 };
 use regex::Regex;
-use std::{borrow::Cow, num::NonZeroU16};
+use std::{
+    any::{Any, TypeId},
+    borrow::Cow,
+    num::NonZeroU16,
+    str::FromStr,
+};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub struct GroupKindName {
@@ -64,7 +69,7 @@ pub struct Ratio {
     pub denominator: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GrpcRouteMatch {
     pub headers: Vec<HeaderMatch>,
     pub method: Option<GrpcMethodMatch>,
@@ -103,6 +108,15 @@ pub struct GrpcMethodMatch {
     pub service: Option<String>,
 }
 
+pub trait GenericRouteMatch: Any + Default {
+    type MethodType: FromStr;
+    fn set_path(self, path: impl ToString) -> Self;
+    fn set_method(self, method: impl ToString) -> Result<Self>;
+    fn is<MatchType: 'static>() -> bool {
+        TypeId::of::<MatchType>() == TypeId::of::<Self>()
+    }
+}
+
 // === impl GroupKindName ===
 
 impl Ord for GroupKindName {
@@ -135,6 +149,55 @@ impl GroupKindName {
             namespace: namespace.into(),
             name: self.name,
         }
+    }
+}
+
+// === impl HttpRouteMatch ===
+
+impl Default for HttpRouteMatch {
+    fn default() -> Self {
+        Self {
+            method: None,
+            headers: vec![],
+            query_params: vec![],
+            path: Some(PathMatch::Prefix("/".to_string())),
+        }
+    }
+}
+
+impl GenericRouteMatch for HttpRouteMatch {
+    type MethodType = Method;
+
+    fn set_path(mut self, path: impl ToString) -> Self {
+        self.path = Some(PathMatch::Exact(path.to_string()));
+        self
+    }
+
+    fn set_method(mut self, method: impl ToString) -> Result<Self> {
+        let method = method.to_string().parse()?;
+        self.method = Some(method);
+        Ok(self)
+    }
+}
+
+// === impl GrpcRouteMatch ===
+
+impl GenericRouteMatch for GrpcRouteMatch {
+    type MethodType = String;
+
+    fn set_path(self, _: impl ToString) -> Self {
+        self
+    }
+
+    fn set_method(mut self, method: impl ToString) -> Result<Self> {
+        let service = self.method.and_then(|rule| rule.service);
+
+        self.method = Some(GrpcMethodMatch {
+            service,
+            method: Some(method.to_string()),
+        });
+
+        Ok(self)
     }
 }
 

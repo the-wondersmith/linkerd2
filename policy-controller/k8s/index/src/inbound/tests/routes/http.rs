@@ -37,30 +37,33 @@ fn route_attaches_to_server() {
         InboundServer {
             reference: ServerRef::Server("srv-8080".to_string()),
             authorizations: Default::default(),
-            protocol: ProxyProtocol::Http1,
-            routes: mk_default_routes(),
+            protocol: ProxyProtocol::Http1(mk_default_routes()),
         },
     );
 
     // Create route.
-    test.index
-        .write()
-        .apply(mk_route("ns-0", "route-foo", "srv-8080"));
+    let route = mk_route("ns-0", "route-foo", "srv-8080");
+    test.index.write().apply(route.clone());
     assert!(rx.has_changed().unwrap());
     assert_eq!(
         rx.borrow().reference,
         ServerRef::Server("srv-8080".to_string())
     );
-    assert!(rx
-        .borrow_and_update()
-        .routes
-        .contains_key(&InboundRouteRef::Linkerd("route-foo".gkn::<HttpRoute>())));
+
+    match &rx.borrow_and_update().protocol {
+        ProxyProtocol::Http1(routes) => {
+            assert!(routes.contains_key(&InboundRouteRef::Linkerd("route-foo".gkn::<HttpRoute>())))
+        }
+        protocol => {
+            tracing::error!(?protocol);
+            panic!("expected ProxyProtocol::Http1")
+        }
+    };
 
     // Create authz policy.
     test.index.write().apply(mk_authorization_policy(
-        "ns-0",
         "authz-foo",
-        "route-foo",
+        &route,
         vec![NamespacedTargetRef {
             group: None,
             kind: "ServiceAccount".to_string(),
@@ -70,13 +73,22 @@ fn route_attaches_to_server() {
     ));
 
     assert!(rx.has_changed().unwrap());
-    assert!(
-        rx.borrow().routes[&InboundRouteRef::Linkerd("route-foo".gkn::<HttpRoute>())]
-            .authorizations
-            .contains_key(&AuthorizationRef::AuthorizationPolicy(
-                "authz-foo".to_string()
-            ))
-    );
+
+    match &rx.borrow().protocol {
+        ProxyProtocol::Http1(routes) => {
+            assert!(
+                routes[&InboundRouteRef::Linkerd("route-foo".gkn::<HttpRoute>())]
+                    .authorizations
+                    .contains_key(&AuthorizationRef::AuthorizationPolicy(
+                        "authz-foo".to_string()
+                    ))
+            )
+        }
+        protocol => {
+            tracing::error!(?protocol);
+            panic!("expected ProxyProtocol::Http1")
+        }
+    };
 }
 
 #[test]
@@ -143,10 +155,16 @@ fn routes_created_for_probes() {
     // No Server is configured for the port, so expect the probe paths to be
     // authorized.
     let update = rx.borrow_and_update();
-    let probes = update
-        .routes
-        .get(&InboundRouteRef::Default("probe"))
-        .unwrap();
+    let probes = match &update.protocol {
+        ProxyProtocol::Detect { routes, .. } => {
+            routes.get(&InboundRouteRef::Default("probe")).unwrap()
+        }
+        protocol => {
+            tracing::error!(?protocol);
+            panic!("expected ProxyProtocol::Detect")
+        }
+    };
+
     let probes_rules = probes.rules.first().unwrap();
     assert!(
         probes_rules.matches.contains(&liveness_match),
@@ -161,7 +179,7 @@ fn routes_created_for_probes() {
     assert_eq!(probes.authorizations, expected_authorizations);
     drop(update);
 
-    // // Create server.
+    // Create server.
     test.index.write().apply(mk_server(
         "ns-0",
         "srv-5432",
@@ -172,13 +190,17 @@ fn routes_created_for_probes() {
     ));
     assert!(rx.has_changed().unwrap());
 
-    // // No routes are configured for the Server, so we should still expect the
-    // // Pod's probe paths to be authorized.
+    // No routes are configured for the Server, so we should still expect the
+    // Pod's probe paths to be authorized.
     let update = rx.borrow_and_update();
-    let probes = update
-        .routes
-        .get(&InboundRouteRef::Default("probe"))
-        .unwrap();
+    let probes = match &update.protocol {
+        ProxyProtocol::Http1(routes) => routes.get(&InboundRouteRef::Default("probe")).unwrap(),
+        protocol => {
+            tracing::error!(?protocol);
+            panic!("expected ProxyProtocol::Http1")
+        }
+    };
+
     let probes_rules = probes.rules.first().unwrap();
     assert!(
         probes_rules.matches.contains(&liveness_match),
@@ -201,10 +223,15 @@ fn routes_created_for_probes() {
 
     // A route is now configured for the Server, so the Pod's probe paths
     // should not be automatically authorized.
-    assert!(!rx
-        .borrow_and_update()
-        .routes
-        .contains_key(&InboundRouteRef::Default("probes")));
+    match &rx.borrow_and_update().protocol {
+        ProxyProtocol::Http1(routes) => {
+            assert!(routes.contains_key(&InboundRouteRef::Default("probe")))
+        }
+        protocol => {
+            tracing::error!(?protocol);
+            panic!("expected ProxyProtocol::Http1")
+        }
+    };
 }
 
 fn mk_route(ns: impl ToString, name: impl ToString, server: impl ToString) -> HttpRoute {

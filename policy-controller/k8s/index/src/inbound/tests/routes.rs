@@ -1,27 +1,30 @@
 use super::*;
+use crate::routes::ImpliedGKN;
+use kube::Resource;
 
 mod grpc;
 mod http;
 
 const POLICY_API_GROUP: &str = "policy.linkerd.io";
 
-fn mk_authorization_policy(
-    ns: impl ToString,
+fn mk_authorization_policy<Route: ResourceExt + Resource<DynamicType = ()>>(
     name: impl ToString,
-    route: impl ToString,
+    route: &Route,
     authns: impl IntoIterator<Item = NamespacedTargetRef>,
 ) -> k8s::policy::AuthorizationPolicy {
+    let gkn = route.gkn();
+
     k8s::policy::AuthorizationPolicy {
         metadata: k8s::ObjectMeta {
-            namespace: Some(ns.to_string()),
+            namespace: route.namespace().clone(),
             name: Some(name.to_string()),
             ..Default::default()
         },
         spec: k8s::policy::AuthorizationPolicySpec {
             target_ref: LocalTargetRef {
-                group: Some(POLICY_API_GROUP.to_string()),
-                kind: "HttpRoute".to_string(),
-                name: route.to_string(),
+                group: Some(gkn.group.to_string()),
+                kind: gkn.kind.to_string(),
+                name: gkn.name.to_string(),
             },
             required_authentication_refs: authns.into_iter().collect(),
         },

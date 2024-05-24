@@ -16,10 +16,16 @@ pub(crate) mod grpc {}
 pub(crate) mod http {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RouteBinding {
+pub struct RouteBinding<MatchType> {
     pub parents: Vec<ParentRef>,
-    pub route: InboundRoute,
+    pub route: InboundRoute<MatchType>,
     pub statuses: Vec<Status>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TypedRouteBinding {
+    Http(RouteBinding<HttpRouteMatch>),
+    Grpc(RouteBinding<GrpcRouteMatch>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -56,7 +62,75 @@ pub enum InvalidParentRef {
     SpecifiesSection,
 }
 
-impl TryFrom<gateway::HttpRoute> for RouteBinding {
+impl From<RouteBinding<HttpRouteMatch>> for TypedRouteBinding {
+    fn from(binding: RouteBinding<HttpRouteMatch>) -> Self {
+        Self::Http(binding)
+    }
+}
+
+impl From<RouteBinding<GrpcRouteMatch>> for TypedRouteBinding {
+    fn from(binding: RouteBinding<GrpcRouteMatch>) -> Self {
+        Self::Grpc(binding)
+    }
+}
+
+impl From<&RouteBinding<HttpRouteMatch>> for InboundRoute<HttpRouteMatch> {
+    fn from(binding: &RouteBinding<HttpRouteMatch>) -> InboundRoute<HttpRouteMatch> {
+        binding.route.clone()
+    }
+}
+
+impl From<&RouteBinding<GrpcRouteMatch>> for InboundRoute<GrpcRouteMatch> {
+    fn from(binding: &RouteBinding<GrpcRouteMatch>) -> InboundRoute<GrpcRouteMatch> {
+        binding.route.clone()
+    }
+}
+
+impl TryFrom<&TypedRouteBinding> for InboundRoute<HttpRouteMatch> {
+    type Error = Error;
+
+    fn try_from(binding: &TypedRouteBinding) -> Result<Self, Self::Error> {
+        match binding {
+            TypedRouteBinding::Http(binding) => Ok(binding.route.clone()),
+            TypedRouteBinding::Grpc(_) => Err(Self::Error::msg(
+                "cannot convert grpc binding to http route",
+            )),
+        }
+    }
+}
+
+impl TryFrom<&TypedRouteBinding> for InboundRoute<GrpcRouteMatch> {
+    type Error = Error;
+
+    fn try_from(binding: &TypedRouteBinding) -> Result<Self, Self::Error> {
+        match binding {
+            TypedRouteBinding::Grpc(binding) => Ok(binding.route.clone()),
+            TypedRouteBinding::Http(_) => Err(Self::Error::msg(
+                "cannot convert http binding to grpc route",
+            )),
+        }
+    }
+}
+
+impl TypedRouteBinding {
+    #[inline]
+    pub fn selects_server(&self, name: &str) -> bool {
+        match self {
+            Self::Http(binding) => binding.selects_server(name),
+            Self::Grpc(binding) => binding.selects_server(name),
+        }
+    }
+
+    #[inline]
+    pub fn accepted_by_server(&self, name: &str) -> bool {
+        match self {
+            Self::Http(binding) => binding.accepted_by_server(name),
+            Self::Grpc(binding) => binding.accepted_by_server(name),
+        }
+    }
+}
+
+impl TryFrom<gateway::HttpRoute> for RouteBinding<HttpRouteMatch> {
     type Error = Error;
 
     fn try_from(route: gateway::HttpRoute) -> Result<Self, Self::Error> {
@@ -102,7 +176,7 @@ impl TryFrom<gateway::HttpRoute> for RouteBinding {
     }
 }
 
-impl TryFrom<gateway::GrpcRoute> for RouteBinding {
+impl TryFrom<gateway::GrpcRoute> for RouteBinding<GrpcRouteMatch> {
     type Error = Error;
 
     fn try_from(route: gateway::GrpcRoute) -> Result<Self, Self::Error> {
@@ -148,7 +222,7 @@ impl TryFrom<gateway::GrpcRoute> for RouteBinding {
     }
 }
 
-impl TryFrom<policy::HttpRoute> for RouteBinding {
+impl TryFrom<policy::HttpRoute> for RouteBinding<HttpRouteMatch> {
     type Error = Error;
 
     fn try_from(route: policy::HttpRoute) -> Result<Self, Self::Error> {
@@ -194,7 +268,7 @@ impl TryFrom<policy::HttpRoute> for RouteBinding {
     }
 }
 
-impl RouteBinding {
+impl<MatchType> RouteBinding<MatchType> {
     #[inline]
     pub fn selects_server(&self, name: &str) -> bool {
         self.parents
@@ -245,7 +319,6 @@ impl RouteBinding {
         })
     }
 
-    #[allow(dead_code)]
     pub fn try_grpc_match(
         gateway::GrpcRouteMatch { headers, method }: gateway::GrpcRouteMatch,
     ) -> Result<GrpcRouteMatch> {
@@ -265,11 +338,12 @@ impl RouteBinding {
 
         Ok(GrpcRouteMatch { headers, method })
     }
+
     fn try_http_rule<F>(
         matches: Option<Vec<gateway::HttpRouteMatch>>,
         filters: Option<Vec<F>>,
         try_filter: impl Fn(F) -> Result<Filter>,
-    ) -> Result<InboundRouteRule> {
+    ) -> Result<InboundRouteRule<HttpRouteMatch>> {
         let matches = matches
             .into_iter()
             .flatten()
@@ -286,28 +360,23 @@ impl RouteBinding {
     }
 
     fn try_grpc_rule<F>(
-        _matches: Option<Vec<gateway::GrpcRouteMatch>>,
-        _filters: Option<Vec<F>>,
-        _try_filter: impl Fn(F) -> Result<Filter>,
-    ) -> Result<InboundRouteRule> {
-        // TODO(the-wondersmith): uncomment when inbound grpcroute support is fully implemented
-        // let matches = matches
-        //     .into_iter()
-        //     .flatten()
-        //     .map(Self::try_grpc_match)
-        //     .collect::<Result<_>>()?;
-        //
-        // let filters = filters
-        //     .into_iter()
-        //     .flatten()
-        //     .map(try_filter)
-        //     .collect::<Result<_>>()?;
-        //
-        // Ok(InboundRouteRule { matches, filters })
-        Ok(InboundRouteRule {
-            filters: Default::default(),
-            matches: Default::default(),
-        })
+        matches: Option<Vec<gateway::GrpcRouteMatch>>,
+        filters: Option<Vec<F>>,
+        try_filter: impl Fn(F) -> Result<Filter>,
+    ) -> Result<InboundRouteRule<GrpcRouteMatch>> {
+        let matches = matches
+            .into_iter()
+            .flatten()
+            .map(Self::try_grpc_match)
+            .collect::<Result<_>>()?;
+
+        let filters = filters
+            .into_iter()
+            .flatten()
+            .map(try_filter)
+            .collect::<Result<_>>()?;
+
+        Ok(InboundRouteRule { matches, filters })
     }
 
     fn try_gateway_filter<RouteFilter: Into<gateway::HttpRouteFilter>>(

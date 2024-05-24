@@ -116,22 +116,15 @@ pub enum Filter {
 
 // === impl TypedOutboundRoute ===
 
-impl TypedOutboundRoute {
-    pub fn from_gknn_and_route<Route: Into<TypedOutboundRoute>>(
-        (gknn, route): (GroupKindNamespaceName, Route),
-    ) -> (GroupKindNamespaceName, Self) {
-        (gknn, route.into())
-    }
-}
 impl From<OutboundRoute<GrpcRouteMatch>> for TypedOutboundRoute {
-    fn from(rule: OutboundRoute<GrpcRouteMatch>) -> Self {
-        Self::Grpc(rule)
+    fn from(route: OutboundRoute<GrpcRouteMatch>) -> Self {
+        Self::Grpc(route)
     }
 }
 
 impl From<OutboundRoute<HttpRouteMatch>> for TypedOutboundRoute {
-    fn from(rule: OutboundRoute<HttpRouteMatch>) -> Self {
-        Self::Http(rule)
+    fn from(route: OutboundRoute<HttpRouteMatch>) -> Self {
+        Self::Http(route)
     }
 }
 
